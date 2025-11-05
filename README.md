@@ -26,6 +26,11 @@ In order to extract the pin from the sensor sequences, we first nee to indentify
 Here is a picture of the data (smartphone unlocking sequence between other regular behaviours):
 <img width="1680" height="961" alt="pin_sequence" src="https://github.com/user-attachments/assets/55d70553-e696-4e69-b52e-85d1905a16e6" />
 
+Analysis:
+- When the user holds his smartphone, the watch takes a specific orientation : Y -> 0 ; X -> [0.5;1] G ; Z -> [0;0.5] G. We can use this information to filter frames when the user is likely to hold its smartphone. By using a gaussian filter or applying a low pass filter on the accelerometer values we can get the orientation.
+
+
+
 ## Model training
 
 Once we have extracted a sequence of unlocking smartphone, we have to train a model to deduce the pin code from sensor datas. To do so, the first phasis is to collect a bunch of pairs, sensordata/pincode. To achieve this, we have created a flask webserver that register user actions and correlate them with sensor data. Here is the scheme of the application:
