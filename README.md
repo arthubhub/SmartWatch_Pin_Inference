@@ -24,3 +24,12 @@ Here is a picture of the setup:
 
 In order to extract the pin from the sensor sequences, we first nee to indentify when the victim is unlocking its smartphone.
 Here is a picture of the data (smartphone unlocking sequence between other regular behaviours):
+<img width="1680" height="961" alt="pin_sequence" src="https://github.com/user-attachments/assets/55d70553-e696-4e69-b52e-85d1905a16e6" />
+
+## Model training
+
+Once we have extracted a sequence of unlocking smartphone, we have to train a model to deduce the pin code from sensor datas. To do so, the first phasis is to collect a bunch of pairs, sensordata/pincode. To achieve this, we have created a flask webserver that register user actions and correlate them with sensor data. Here is the scheme of the application:
+<img width="680" height="734" alt="image" src="https://github.com/user-attachments/assets/fa951f83-b6cc-4b9d-9c58-796a030d207d" />
+
+Result visualization:
+<img width="1680" height="961" alt="Figure_1" src="https://github.com/user-attachments/assets/4f4474c9-d817-44e8-813e-1a5c91fe58f3" />
