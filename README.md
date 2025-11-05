@@ -42,7 +42,7 @@ Here is a first idea of process to gather information about how to extract infor
 
 ### Data correlation
 
-In order to make the model understand the data, we have to be sure that the same sequences will be aligned together. The model will have to learn patterns of transitions. To do so, we can use peaks from accelerometer to align gyroscope value, as the figure from the second row shows:
+In order to make the model understand the data, we have to be sure that the same sequences will be aligned together. The model will have to learn patterns of transitions. To do so, we can use peaks from accelerometer to align gyroscope value, as the figure from the second row shows: On the left side, we can see the peaks of accelerometer. On the right side, if you look at the dots, we can see a pattern that matches the accelerometter.
 <img width="1680" height="961" alt="Figure_1" src="https://github.com/user-attachments/assets/f846a83a-e0f7-4b07-a9e8-e87a922e27d2" />
 
 
