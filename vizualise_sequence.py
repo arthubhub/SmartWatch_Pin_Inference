@@ -6,8 +6,9 @@ Features:
 - Displays dataset info (sample count, sequences per PIN)
 - Compare multiple sequences (IDs)
 - Compare occurrences of a same PIN
-- Compare occurrences per digit
+- Compare occurrences per digit (overlay all sequences)
 - Compare all occurrences of one PIN vs another PIN (by digit)
+- Normalize sequences to same length
 """
 
 import json
@@ -15,9 +16,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from collections import Counter
 import pyarrow.parquet as pq
+import numpy as np
 
 # ------------------- Configuration -------------------
-DATA_PATH = Path("data/sequences/sequences.parquet")  # or .jsonl
+DATA_PATH = Path("data/sequences_pins/sequences_normalized.parquet")  # or .jsonl
 
 # ------------------- Load the dataset -------------------
 def load_jsonl(path):
@@ -92,6 +94,16 @@ def extract_axes_values(win):
         gz = [w[4] for w in win]
     return ax, ay, az, gx, gz
 
+def interpolate_signal(signal, target_length):
+    """Interpolate a signal to target_length using linear interpolation."""
+    if len(signal) == 0:
+        return [0] * target_length
+    if len(signal) == target_length:
+        return signal
+    x_old = np.linspace(0, 1, len(signal))
+    x_new = np.linspace(0, 1, target_length)
+    return np.interp(x_new, x_old, signal).tolist()
+
 # ------------------- Visualization -------------------
 def plot_sample(sample, ax_acc=None, ax_gyro=None, color=None):
     pin = sample["pin_label"]
@@ -156,37 +168,41 @@ def compare_same_pin(samples, pin):
     compare_sequences(samples, ids)
 
 
-def compare_same_pin_by_digit(samples, pin):
+def compare_same_pin_overlay(samples, pin):
+    """Overlay all sequences of the same PIN on a single plot."""
     same_pin_samples = [s for s in samples if s["pin_label"] == pin]
     if len(same_pin_samples) < 2:
-        print(f"Not enough sequences for PIN {pin} to compare by digit.")
+        print(f"Not enough sequences for PIN {pin} to compare.")
         return
 
-    fig, axes = plt.subplots(4, 2, figsize=(12, 10), sharex=False)
-    fig.suptitle(f"PIN {pin} — Comparison by Digit Transitions", fontsize=14)
+    fig, (ax_acc, ax_gyro) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    fig.suptitle(f"PIN {pin} — All Sequences Overlayed", fontsize=14)
     palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
 
-    for i in range(4):  # 4 digits
-        ax_acc, ax_gyro = axes[i]
-        for idx, sample in enumerate(same_pin_samples):
-            if i >= len(sample["sensor_values"]):
+    for idx, sample in enumerate(same_pin_samples):
+        t_offset = 0
+        c = palette[idx % len(palette)]
+        
+        for i, win in enumerate(sample["sensor_values"]):
+            if len(win) == 0:
                 continue
-            win = list(sample["sensor_values"][i])
             axv, ayv, azv, gxv, gzv = extract_axes_values(win)
-            t = range(len(axv))
-            c = palette[idx % len(palette)]
-            ax_acc.plot(t, axv, color=c, alpha=0.8, label=f"Seq {sample['id']} ax")
-            ax_acc.plot(t, ayv, color=c, alpha=0.5)
-            ax_acc.plot(t, azv, color=c, alpha=0.3)
-            ax_gyro.plot(t, gxv, color=c, alpha=0.9, linewidth=1.8, label=f"Seq {sample['id']} gx")
-            ax_gyro.plot(t, gzv, color=c, alpha=0.4, linestyle="dotted", linewidth=1.0)
-        ax_acc.set_title(f"Digit {i+1} '{pin[i]}' — Accelerometer")
-        ax_gyro.set_title(f"Digit {i+1} '{pin[i]}' — Gyroscope")
-        ax_acc.grid(True, linestyle="--", alpha=0.4)
-        ax_gyro.grid(True, linestyle="--", alpha=0.4)
-        ax_acc.legend(fontsize=7)
-        ax_gyro.legend(fontsize=7)
+            t = range(t_offset, t_offset + len(axv))
+            
+            label = f"Seq {sample['id']}" if i == 0 else ""
+            ax_acc.plot(t, axv, color=c, alpha=0.6, label=label)
+            ax_gyro.plot(t, gxv, color=c, alpha=0.6, label=label)
+            
+            t_offset += len(axv)
 
+    ax_acc.set_title("Accelerometer (ax)")
+    ax_gyro.set_title("Gyroscope (gx)")
+    ax_gyro.set_xlabel("Sample index")
+    ax_acc.legend(fontsize=8)
+    ax_gyro.legend(fontsize=8)
+    ax_acc.grid(True, linestyle="--", alpha=0.4)
+    ax_gyro.grid(True, linestyle="--", alpha=0.4)
+    
     plt.tight_layout()
     plt.show()
 
@@ -240,6 +256,84 @@ def compare_pins(samples, pin_a, pin_b):
     plt.show()
 
 
+def normalize_sequences(samples):
+    """Normalize all sequences to have the same length (max length found in dataset)."""
+    print("\n🔄 Normalizing sequences...")
+    
+    # Find maximum length for each digit position
+    max_lengths = [0, 0, 0, 0]
+    for sample in samples:
+        for i, win in enumerate(sample["sensor_values"]):
+            if i < 4:
+                max_lengths[i] = max(max_lengths[i], len(win))
+    
+    print(f"  → Maximum lengths per digit: {max_lengths}")
+    print(f"  → Total max length: {sum(max_lengths)}")
+    
+    # Create normalized copies
+    normalized_samples = []
+    for sample in samples:
+        new_sensor_values = []
+        for i, win in enumerate(sample["sensor_values"]):
+            if i >= 4:
+                new_sensor_values.append(win)
+                continue
+                
+            target_len = max_lengths[i]
+            if len(win) == 0:
+                new_sensor_values.append(win)
+                continue
+            
+            # Extract all axes
+            axv, ayv, azv, gxv, gzv = extract_axes_values(win)
+            
+            # Interpolate each axis
+            axv_norm = interpolate_signal(axv, target_len)
+            ayv_norm = interpolate_signal(ayv, target_len)
+            azv_norm = interpolate_signal(azv, target_len)
+            gxv_norm = interpolate_signal(gxv, target_len)
+            gzv_norm = interpolate_signal(gzv, target_len)
+            
+            # Reconstruct window
+            if isinstance(win[0], dict):
+                new_win = [
+                    {"ax": axv_norm[j], "ay": ayv_norm[j], "az": azv_norm[j], 
+                     "gx": gxv_norm[j], "gz": gzv_norm[j]}
+                    for j in range(target_len)
+                ]
+            else:
+                new_win = [
+                    [axv_norm[j], ayv_norm[j], azv_norm[j], gxv_norm[j], gzv_norm[j]]
+                    for j in range(target_len)
+                ]
+            
+            new_sensor_values.append(new_win)
+        
+        normalized_sample = sample.copy()
+        normalized_sample["sensor_values"] = new_sensor_values
+        normalized_samples.append(normalized_sample)
+    
+    print(f"✅ Normalized {len(normalized_samples)} sequences")
+    
+    # Save option
+    save = input("\nSave normalized data? (y/n): ").strip().lower()
+    if save == 'y':
+        output_path = DATA_PATH.parent / f"{DATA_PATH.stem}_normalized{DATA_PATH.suffix}"
+        
+        if output_path.suffix == ".jsonl":
+            with open(output_path, "w", encoding="utf-8") as f:
+                for sample in normalized_samples:
+                    f.write(json.dumps(sample) + "\n")
+        elif output_path.suffix == ".parquet":
+            import pyarrow as pa
+            table = pa.Table.from_pylist(normalized_samples)
+            pq.write_table(table, output_path)
+        
+        print(f"💾 Saved to: {output_path}")
+    
+    return normalized_samples
+
+
 # ------------------- Main -------------------
 if __name__ == "__main__":
     samples = load_dataset(DATA_PATH)
@@ -249,9 +343,10 @@ if __name__ == "__main__":
     print("  [1] Visualize a single sequence")
     print("  [2] Compare multiple sequences (by IDs)")
     print("  [3] Compare multiple occurrences of the same PIN")
-    print("  [4] Compare same PIN by digit transitions (4×2 plots)")
+    print("  [4] Overlay all occurrences of the same PIN (single plot)")
     print("  [5] Compare all occurrences of one PIN vs another PIN (by digit)")
-    choice = input("Select an option (1–5): ").strip()
+    print("  [6] Normalize all sequences to same length")
+    choice = input("Select an option (1–6): ").strip()
 
     if choice == "1":
         ids = [s["id"] for s in samples]
@@ -276,13 +371,18 @@ if __name__ == "__main__":
         compare_same_pin(samples, pin)
 
     elif choice == "4":
-        pin = input("Enter the PIN to compare its occurrences (by digit): ").strip()
-        compare_same_pin_by_digit(samples, pin)
+        pin = input("Enter the PIN to overlay all occurrences: ").strip()
+        compare_same_pin_overlay(samples, pin)
 
     elif choice == "5":
         pin_a = input("Enter first PIN: ").strip()
         pin_b = input("Enter second PIN: ").strip()
         compare_pins(samples, pin_a, pin_b)
+
+    elif choice == "6":
+        normalized_samples = normalize_sequences(samples)
+        print("\n✨ Normalization complete!")
+        print("You can now use the normalized data for further analysis.")
 
     else:
         print("Invalid choice.")
