@@ -40,6 +40,12 @@ Here is a first idea of process to gather information about how to extract infor
 - Chose a set of parameters to identify unlocking frames : orientation (gx,gy and accelerometer), variance of signal, mean, peaks, etc
 - Try to identify unlocking sequences, compare with real data (false positive, false negatives, average performance, ...)
 
+### Data correlation
+
+In order to make the model understand the data, we have to be sure that the same sequences will be aligned together. The model will have to learn patterns of transitions. To do so, we can use peaks from accelerometer to align gyroscope value, as the figure from the second row shows:
+<img width="1680" height="961" alt="Figure_1" src="https://github.com/user-attachments/assets/f846a83a-e0f7-4b07-a9e8-e87a922e27d2" />
+
+
 
 
 ## Model training
