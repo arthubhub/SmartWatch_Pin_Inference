@@ -28,6 +28,17 @@ Here is a picture of the data (smartphone unlocking sequence between other regul
 
 Analysis:
 - When the user holds his smartphone, the watch takes a specific orientation : Y -> 0 ; X -> [0.5;1] G ; Z -> [0;0.5] G. We can use this information to filter frames when the user is likely to hold its smartphone. By using a gaussian filter or applying a low pass filter on the accelerometer values we can get the orientation.
+- When the user is typing the code, its hand stays very stable because he has to focus on th screen. We can see up to four clear peaks appearing in the graph, one per pressed digit.
+- The user usually not type with the same speed and strength in regular use of his smartphone.
+
+### Getting unlocking sequences
+
+Here is a first idea of process to gather information about how to extract information about watch orientation:
+- Analyse regular behaviour
+- Analyse unlocking sequences in different contexts
+- Compare the data and find caracteristics of unlocking sequences
+- Chose a set of parameters to identify unlocking frames : orientation (gx,gy and accelerometer), variance of signal, mean, peaks, etc
+- Try to identify unlocking sequences, compare with real data (false positive, false negatives, average performance, ...)
 
 
 
