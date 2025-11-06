@@ -6,7 +6,7 @@ Features:
 - Displays dataset info (sample count, sequences per PIN)
 - Compare multiple sequences (IDs)
 - Compare occurrences of a same PIN
-- Compare occurrences per digit (overlay all sequences)
+- Compare occurrences per digit
 - Compare all occurrences of one PIN vs another PIN (by digit)
 - Normalize sequences to same length
 """
@@ -50,11 +50,21 @@ def summarize_dataset(samples):
 
     # Count occurrences of each PIN
     pins = [s["pin_label"] for s in samples]
-    from collections import Counter
-    pin_counts = Counter(pins)
-    print("  → Number of sequences per PIN:")
-    for pin, count in pin_counts.items():
-        print(f"     {pin}: {count}")
+
+    pin_arr=[ [pin, dict([["count",pins.count(pin)],["ids",[]]])] for pin in pins]
+    pin_dict=dict(pin_arr)
+    for s in samples:
+        pin_dict[s["pin_label"]]["ids"].append(s["id"])
+    
+
+    
+    print(pin_dict)
+
+
+    for key, value in pin_dict.items():
+        count,pinid = value["count"], value["ids"]
+        print(f" {key} ids[{count}] = {pinid}")
+
 
     # Compute stats per digit position
     digit_lengths = {i: [] for i in range(4)}  # assuming 4 digits
@@ -105,13 +115,13 @@ def interpolate_signal(signal, target_length):
     return np.interp(x_new, x_old, signal).tolist()
 
 # ------------------- Visualization -------------------
-def plot_sample(sample, ax_acc=None, ax_gyro=None, color=None):
+def plot_sample(sample, ax_acc=None, ax_gyro_x=None,ax_gyro_z=None, color=None):
     pin = sample["pin_label"]
     sid = sample["id"]
     sensor_values = sample["sensor_values"]
 
-    if ax_acc is None or ax_gyro is None:
-        fig, (ax_acc, ax_gyro) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    if ax_acc is None or ax_gyro_x is None or ax_gyro_z is None:
+        fig, (ax_acc, ax_gyro_x, ax_gyro_z) = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
         fig.suptitle(f"IMU Sequence for PIN {pin} (ID={sid})")
 
     t_offset = 0
@@ -129,31 +139,43 @@ def plot_sample(sample, ax_acc=None, ax_gyro=None, color=None):
         ax_acc.plot(t, axv, color=c, alpha=0.8, label=label + " ax")
         ax_acc.plot(t, ayv, color=c, alpha=0.4)
         ax_acc.plot(t, azv, color=c, alpha=0.2)
-        ax_gyro.plot(t, gxv, color=c, alpha=0.8, label=label + " gx")
-        ax_gyro.plot(t, gzv, color=c, alpha=0.4, linestyle="dotted")
+        ax_gyro_x.plot(t, gxv, color=c, alpha=1, label=label + " gx")
+        ax_gyro_z.plot(t, gzv, color=c, alpha=1, label=label + " gz")
         t_offset += n
 
     ax_acc.set_title("Accelerometer (ax, ay, az)")
-    ax_gyro.set_title("Gyroscope (gx, gz)")
-    ax_gyro.set_xlabel("Sample index")
+    ax_gyro_x.set_title("Gyroscope X")
+    ax_gyro_x.set_xlabel("Sample index")
+    ax_gyro_z.set_title("Gyroscope Z")
+    ax_gyro_z.set_xlabel("Sample index")
     ax_acc.legend(fontsize=8)
     ax_acc.grid(True, linestyle="--", alpha=0.5)
-    ax_gyro.grid(True, linestyle="--", alpha=0.5)
-    return ax_acc, ax_gyro
+    ax_gyro_x.grid(True, linestyle="--", alpha=0.5)
+    ax_gyro_z.grid(True, linestyle="--", alpha=0.5)
+
+    return ax_acc, ax_gyro_x, ax_gyro_z
 
 
 # ------------------- Comparison Modes -------------------
 def compare_sequences(samples, ids):
-    fig, (ax_acc, ax_gyro) = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+    fig, (ax_acc, ax_gyro_x, ax_gyro_z) = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
     fig.suptitle(f"Comparison of sequences: {ids}")
     palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
     for idx, sid in enumerate(ids):
         try:
+            print("len : ",len([s for s in samples if s["id"] == sid]))
             sample = next(s for s in samples if s["id"] == sid)
         except StopIteration:
             print(f"ID {sid} not found, skipping.")
             continue
-        plot_sample(sample, ax_acc, ax_gyro, color=palette[idx % len(palette)])
+        plot_sample(sample, ax_acc, ax_gyro_x, ax_gyro_z, color=palette[idx % len(palette)])
+    frames_sizes=[len(s["sensor_values"][i]) for i in range(4) for s in samples if s["id"] == sid]
+    cursors = [sum(frames_sizes[:i]) for i in range(len(frames_sizes)+1)]
+    for i in cursors:
+        ax_acc.axvline(i,color="black",alpha=0.8, linestyle="dotted", linewidth=1.0)
+        ax_gyro_x.axvline(i,color="black",alpha=0.8, linestyle="dotted", linewidth=1.0)
+        ax_gyro_z.axvline(i,color="black",alpha=0.8, linestyle="dotted", linewidth=1.0)
+
     plt.tight_layout()
     plt.show()
 
@@ -168,41 +190,37 @@ def compare_same_pin(samples, pin):
     compare_sequences(samples, ids)
 
 
-def compare_same_pin_overlay(samples, pin):
-    """Overlay all sequences of the same PIN on a single plot."""
+def compare_same_pin_by_digit(samples, pin):
     same_pin_samples = [s for s in samples if s["pin_label"] == pin]
     if len(same_pin_samples) < 2:
-        print(f"Not enough sequences for PIN {pin} to compare.")
+        print(f"Not enough sequences for PIN {pin} to compare by digit.")
         return
 
-    fig, (ax_acc, ax_gyro) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-    fig.suptitle(f"PIN {pin} — All Sequences Overlayed", fontsize=14)
+    fig, axes = plt.subplots(4, 2, figsize=(12, 10), sharex=False)
+    fig.suptitle(f"PIN {pin} — Comparison by Digit Transitions", fontsize=14)
     palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
 
-    for idx, sample in enumerate(same_pin_samples):
-        t_offset = 0
-        c = palette[idx % len(palette)]
-        
-        for i, win in enumerate(sample["sensor_values"]):
-            if len(win) == 0:
+    for i in range(4):  # 4 digits
+        ax_acc, ax_gyro = axes[i]
+        for idx, sample in enumerate(same_pin_samples):
+            if i >= len(sample["sensor_values"]):
                 continue
+            win = list(sample["sensor_values"][i])
             axv, ayv, azv, gxv, gzv = extract_axes_values(win)
-            t = range(t_offset, t_offset + len(axv))
-            
-            label = f"Seq {sample['id']}" if i == 0 else ""
-            ax_acc.plot(t, axv, color=c, alpha=0.6, label=label)
-            ax_gyro.plot(t, gxv, color=c, alpha=0.6, label=label)
-            
-            t_offset += len(axv)
+            t = range(len(axv))
+            c = palette[idx % len(palette)]
+            ax_acc.plot(t, axv, color=c, alpha=0.8, label=f"Seq {sample['id']} ax")
+            ax_acc.plot(t, ayv, color=c, alpha=0.5)
+            ax_acc.plot(t, azv, color=c, alpha=0.3)
+            ax_gyro.plot(t, gxv, color=c, alpha=0.9, linewidth=1.8, label=f"Seq {sample['id']} gx")
+            ax_gyro.plot(t, gzv, color=c, alpha=0.4, linestyle="dotted", linewidth=1.0)
+        ax_acc.set_title(f"Digit {i+1} '{pin[i]}' — Accelerometer")
+        ax_gyro.set_title(f"Digit {i+1} '{pin[i]}' — Gyroscope")
+        ax_acc.grid(True, linestyle="--", alpha=0.4)
+        ax_gyro.grid(True, linestyle="--", alpha=0.4)
+        ax_acc.legend(fontsize=7)
+        ax_gyro.legend(fontsize=7)
 
-    ax_acc.set_title("Accelerometer (ax)")
-    ax_gyro.set_title("Gyroscope (gx)")
-    ax_gyro.set_xlabel("Sample index")
-    ax_acc.legend(fontsize=8)
-    ax_gyro.legend(fontsize=8)
-    ax_acc.grid(True, linestyle="--", alpha=0.4)
-    ax_gyro.grid(True, linestyle="--", alpha=0.4)
-    
     plt.tight_layout()
     plt.show()
 
@@ -343,7 +361,7 @@ if __name__ == "__main__":
     print("  [1] Visualize a single sequence")
     print("  [2] Compare multiple sequences (by IDs)")
     print("  [3] Compare multiple occurrences of the same PIN")
-    print("  [4] Overlay all occurrences of the same PIN (single plot)")
+    print("  [4] Compare same PIN by digit transitions (4×2 plots)")
     print("  [5] Compare all occurrences of one PIN vs another PIN (by digit)")
     print("  [6] Normalize all sequences to same length")
     choice = input("Select an option (1–6): ").strip()
@@ -359,6 +377,7 @@ if __name__ == "__main__":
             except (ValueError, StopIteration):
                 print("Invalid ID, please try again.")
         plot_sample(sample)
+        
         plt.show()
 
     elif choice == "2":
@@ -371,8 +390,8 @@ if __name__ == "__main__":
         compare_same_pin(samples, pin)
 
     elif choice == "4":
-        pin = input("Enter the PIN to overlay all occurrences: ").strip()
-        compare_same_pin_overlay(samples, pin)
+        pin = input("Enter the PIN to compare its occurrences (by digit): ").strip()
+        compare_same_pin_by_digit(samples, pin)
 
     elif choice == "5":
         pin_a = input("Enter first PIN: ").strip()
