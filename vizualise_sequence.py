@@ -158,25 +158,136 @@ def plot_sample(sample, ax_acc=None, ax_gyro_x=None,ax_gyro_z=None, color=None):
 
 # ------------------- Comparison Modes -------------------
 def compare_sequences(samples, ids):
-    fig, (ax_acc, ax_gyro_x, ax_gyro_z) = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
-    fig.suptitle(f"Comparison of sequences: {ids}")
+    from matplotlib.widgets import Slider
+    
+    # Get all samples to compare
+    samples_to_plot = []
     palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
-    for idx, sid in enumerate(ids):
+    for sid in ids:
         try:
-            print("len : ",len([s for s in samples if s["id"] == sid]))
             sample = next(s for s in samples if s["id"] == sid)
+            samples_to_plot.append(sample)
         except StopIteration:
             print(f"ID {sid} not found, skipping.")
-            continue
-        plot_sample(sample, ax_acc, ax_gyro_x, ax_gyro_z, color=palette[idx % len(palette)])
-    frames_sizes=[len(s["sensor_values"][i]) for i in range(4) for s in samples if s["id"] == sid]
-    cursors = [sum(frames_sizes[:i]) for i in range(len(frames_sizes)+1)]
-    for i in cursors:
-        ax_acc.axvline(i,color="black",alpha=0.8, linestyle="dotted", linewidth=1.0)
-        ax_gyro_x.axvline(i,color="black",alpha=0.8, linestyle="dotted", linewidth=1.0)
-        ax_gyro_z.axvline(i,color="black",alpha=0.8, linestyle="dotted", linewidth=1.0)
-
-    plt.tight_layout()
+    
+    if not samples_to_plot:
+        print("No valid samples to plot.")
+        return
+    
+    # Calculate max length per digit across all sequences
+    max_digit_lengths = [0, 0, 0, 0]
+    for sample in samples_to_plot:
+        for i in range(min(4, len(sample["sensor_values"]))):
+            max_digit_lengths[i] = max(max_digit_lengths[i], len(sample["sensor_values"][i]))
+    
+    # Initial offsets: [sequence_idx][digit_idx] = offset
+    offsets = [[0, 0, 0, 0] for _ in range(len(samples_to_plot))]
+    
+    # Create figure with space for sliders
+    num_sliders = len(samples_to_plot) * 4
+    fig = plt.figure(figsize=(12, 10))
+    
+    # Create subplots for data (leave space at bottom for sliders)
+    ax_acc = plt.subplot(3, 1, 1)
+    ax_gyro_x = plt.subplot(3, 1, 2)
+    ax_gyro_z = plt.subplot(3, 1, 3)
+    
+    #fig.suptitle(f"Comparison of sequences: {ids} (use sliders to align each digit)")
+    plt.subplots_adjust(bottom= num_sliders * 0.012)
+    
+    
+    def plot_all_samples():
+        """Clear and replot all samples with current offsets."""
+        ax_acc.clear()
+        ax_gyro_x.clear()
+        ax_gyro_z.clear()
+        
+        ax_acc.set_title("Accelerometer (ax, ay, az)")
+        ax_gyro_x.set_title("Gyroscope X")
+        ax_gyro_z.set_title("Gyroscope Z")
+        ax_gyro_z.set_xlabel("Sample index")
+        
+        # Plot each sequence with its per-digit offsets
+        for idx, sample in enumerate(samples_to_plot):
+            pin = sample["pin_label"]
+            sid = sample["id"]
+            sensor_values = sample["sensor_values"]
+            c = palette[idx % len(palette)]
+            
+            t_offset = 0
+            
+            for i, win in enumerate(sensor_values[:4]):  # Only first 4 digits
+                n = len(win)
+                if n == 0:
+                    continue
+                
+                # Apply offset for this specific digit of this sequence
+                t_offset += offsets[idx][i]
+                
+                t = range(t_offset, t_offset + n)
+                axv, ayv, azv, gxv, gzv = extract_axes_values(win)
+                
+                label = f"Digit {i+1} '{pin[i]}' (ID={sid})"
+                
+                ax_acc.plot(t, axv, color=c, alpha=0.8, label=label + " ax")
+                ax_acc.plot(t, ayv, color=c, alpha=0.4)
+                ax_acc.plot(t, azv, color=c, alpha=0.2)
+                ax_gyro_x.plot(t, gxv, color=c, alpha=1, label=label + " gx")
+                ax_gyro_z.plot(t, gzv, color=c, alpha=1, label=label + " gz")
+                
+                # Draw vertical line at digit boundary
+                ax_acc.axvline(t_offset, color=c, alpha=0.3, linestyle="dotted", linewidth=1.0)
+                ax_gyro_x.axvline(t_offset, color=c, alpha=0.3, linestyle="dotted", linewidth=1.0)
+                ax_gyro_z.axvline(t_offset, color=c, alpha=0.3, linestyle="dotted", linewidth=1.0)
+                
+                t_offset += n
+            
+            # Final boundary
+            ax_acc.axvline(t_offset, color=c, alpha=0.3, linestyle="dotted", linewidth=1.0)
+            ax_gyro_x.axvline(t_offset, color=c, alpha=0.3, linestyle="dotted", linewidth=1.0)
+            ax_gyro_z.axvline(t_offset, color=c, alpha=0.3, linestyle="dotted", linewidth=1.0)
+        
+        #ax_acc.legend(fontsize=8)
+        ax_acc.grid(True, linestyle="--", alpha=0.5)
+        ax_gyro_x.grid(True, linestyle="--", alpha=0.5)
+        ax_gyro_z.grid(True, linestyle="--", alpha=0.5)
+        
+        fig.canvas.draw_idle()
+    
+    # Create sliders - 4 per sequence
+    sliders = []
+    slider_height = 0.01
+    slider_spacing = 0.01
+    slider_idx = 0
+    
+    for seq_idx, sample in enumerate(samples_to_plot):
+        for digit_idx in range(4):
+            ax_slider = plt.axes([0.15, 0.02 + slider_idx * slider_spacing, 0.7, slider_height])
+            
+            # Slider range: ±max length for this digit
+            max_shift = max_digit_lengths[digit_idx]
+            slider = Slider(
+                ax_slider, 
+                f'ID{sample["id"]}-D{digit_idx+1}', 
+                -max_shift, 
+                max_shift, 
+                valinit=0, 
+                valstep=1
+            )
+            sliders.append(slider)
+            
+            def make_update(s_idx, d_idx):
+                def update(val):
+                    offsets[s_idx][d_idx] = int(val)
+                    plot_all_samples()
+                return update
+            
+            slider.on_changed(make_update(seq_idx, digit_idx))
+            slider_idx += 1
+    
+    # Initial plot
+    plot_all_samples()
+    
     plt.show()
 
 
@@ -197,7 +308,7 @@ def compare_same_pin_by_digit(samples, pin):
         return
 
     fig, axes = plt.subplots(4, 2, figsize=(12, 10), sharex=False)
-    fig.suptitle(f"PIN {pin} — Comparison by Digit Transitions", fontsize=14)
+    #fig.suptitle(f"PIN {pin} — Comparison by Digit Transitions", fontsize=14)
     palette = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
 
     for i in range(4):  # 4 digits
